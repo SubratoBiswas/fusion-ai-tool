@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FusionTrials — AI Clinical Research Platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,600;0,700;1,500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<header>
+  <div class="brand">
+    <span class="brand-mark">F</span>
+    <div>
+      <h1>FusionTrials</h1>
+      <p class="tagline">AI-powered clinical research operations</p>
+    </div>
+  </div>
+  <div id="ai-badge" class="ai-badge">checking…</div>
+</header>
+
+<nav id="tabs">
+  <button class="tab active" data-tab="dashboard">Dashboard</button>
+  <button class="tab" data-tab="protocol">Protocol Designer</button>
+  <button class="tab" data-tab="eligibility">Eligibility Screener</button>
+  <button class="tab" data-tab="coding">Medical Coding</button>
+  <button class="tab" data-tab="quality">Data Quality</button>
+  <button class="tab" data-tab="registry">Registry Intelligence</button>
+</nav>
+
+<main>
+  <!-- ============ DASHBOARD ============ -->
+  <section id="panel-dashboard" class="panel active">
+    <div id="kpis" class="kpi-row"></div>
+    <h2>Active Studies</h2>
+    <div id="study-cards" class="study-grid"></div>
+    <div id="study-detail"></div>
+  </section>
+
+  <!-- ============ PROTOCOL DESIGNER ============ -->
+  <section id="panel-protocol" class="panel">
+    <h2>AI Protocol Designer</h2>
+    <p class="hint">Describe a study concept and generate a structured protocol synopsis — objectives, design, eligibility criteria, endpoints, statistics, and safety monitoring. Drafts require medical-writer and regulatory review.</p>
+    <form id="protocol-form" class="card form-grid">
+      <label>Working title <input name="title" placeholder="Optional — AI will propose one"></label>
+      <label>Indication / condition * <input name="indication" required placeholder="e.g. Advanced non-small cell lung cancer"></label>
+      <label>Phase
+        <select name="phase">
+          <option>Phase I</option><option>Phase I/II</option><option selected>Phase II</option><option>Phase III</option><option>Phase IV</option>
+        </select>
+      </label>
+      <label>Intervention * <input name="intervention" required placeholder="e.g. FT-501, an oral selective KRAS G12C inhibitor"></label>
+      <label>Comparator <input name="comparator" placeholder="e.g. docetaxel, placebo"></label>
+      <label class="full">Notes <textarea name="notes" rows="2" placeholder="Anything else the protocol should reflect (population nuances, special assessments…)"></textarea></label>
+      <button type="submit" class="primary full">Generate protocol synopsis</button>
+    </form>
+    <div id="protocol-result"></div>
+  </section>
+
+  <!-- ============ ELIGIBILITY ============ -->
+  <section id="panel-eligibility" class="panel">
+    <h2>AI Eligibility Screener</h2>
+    <p class="hint">Paste a patient profile and the protocol's criteria. The AI assesses each criterion and flags missing information. Decision support only — investigators confirm final eligibility.</p>
+    <form id="eligibility-form" class="card form-grid">
+      <label class="full">Patient profile *
+        <textarea name="patient_profile" rows="4" required placeholder="e.g. 64-year-old male, stage IV NSCLC diagnosed 03/2025, ECOG 1, prior carboplatin/pemetrexed, eGFR 78, no brain metastases on last MRI…"></textarea>
+      </label>
+      <label class="full">Inclusion criteria (one per line) *
+        <textarea name="inclusion" rows="4" required placeholder="Age 18 to 75 years&#10;Histologically confirmed stage IIIB/IV NSCLC&#10;ECOG performance status 0–1"></textarea>
+      </label>
+      <label class="full">Exclusion criteria (one per line)
+        <textarea name="exclusion" rows="3" placeholder="Untreated brain metastases&#10;Prior treatment with a KRAS G12C inhibitor"></textarea>
+      </label>
+      <button type="submit" class="primary full">Screen patient</button>
+    </form>
+    <div id="eligibility-result"></div>
+  </section>
+
+  <!-- ============ CODING ============ -->
+  <section id="panel-coding" class="panel">
+    <h2>AI Medical Coding</h2>
+    <p class="hint">Map verbatim adverse event terms (as written by sites) to MedDRA-style Preferred Terms and System Organ Classes, with a confidence flag for coder review.</p>
+    <form id="coding-form" class="card form-grid">
+      <label class="full">Verbatim terms (one per line) *
+        <textarea name="terms" rows="5" required placeholder="bad headache for 2 days&#10;felt sick to stomach&#10;BP spiked to 190/110"></textarea>
+      </label>
+      <button type="submit" class="primary full">Code terms</button>
+    </form>
+    <div id="coding-result"></div>
+  </section>
+
+  <!-- ============ DATA QUALITY ============ -->
+  <section id="panel-quality" class="panel">
+    <h2>AI Data Quality Review</h2>
+    <p class="hint">Run automated edit checks across a study's EDC data — missing values, eligibility deviations, AE coding gaps, seriousness/severity mismatches — then get an AI-written data review narrative. Findings become open queries.</p>
+    <div class="card form-grid">
+      <label>Study
+        <select id="quality-study"></select>
+      </label>
+      <button id="quality-run" class="primary">Run review</button>
+    </div>
+    <div id="quality-result"></div>
+  </section>
+
+  <!-- ============ REGISTRY ============ -->
+  <section id="panel-registry" class="panel">
+    <h2>Registry Intelligence</h2>
+    <p class="hint">Search ClinicalTrials.gov for competitive landscape during feasibility — with an AI summary of phases, status mix, and enrollment competition.</p>
+    <form id="registry-form" class="card form-grid">
+      <label class="full">Search query * <input name="q" required placeholder="e.g. KRAS G12C NSCLC"></label>
+      <button type="submit" class="primary full">Search registry</button>
+    </form>
+    <div id="registry-result"></div>
+  </section>
+</main>
+
+<footer>
+  FusionTrials demo platform — AI outputs are drafts for qualified human review and are not a substitute for medical, statistical, or regulatory judgment.
+</footer>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
