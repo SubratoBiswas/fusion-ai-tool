@@ -1,11 +1,10 @@
-"""FusionTrials — AI-powered clinical research platform.
+"""FusionTrials — AI-powered unified eClinical platform.
 
-A unified eClinical demo combining a CTMS-style operations dashboard
-with Claude-powered modules: protocol design, eligibility screening,
-medical coding, data-quality review, and registry intelligence.
+Modules: CTMS dashboard, EDC, RTSM, ePRO, eTMF, plus Claude-powered
+AI features (protocol design, eligibility screening, medical coding,
+data-quality review, registry intelligence). Backed by MongoDB.
 """
 
-import json
 import os
 from contextlib import asynccontextmanager
 
@@ -20,7 +19,9 @@ from .ai.data_quality import review_narrative, run_edit_checks
 from .ai.eligibility import screen_patient
 from .ai.protocol import generate_protocol
 from .ai.registry import search_trials
-from .database import get_db, init_db, rows_to_dicts
+from .database import find_all, find_one, get_db, init_db, insert, now_iso
+from .modules import edc, epro, etmf, rtsm
+
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
@@ -28,7 +29,7 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title="FusionTrials", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="FusionTrials", version="2.0.0", lifespan=lifespan)
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
@@ -54,60 +55,157 @@ class CodingRequest(BaseModel):
     verbatim_terms: list[str] = Field(min_length=1)
 
 
+class CrfSubmission(BaseModel):
+    study_id: int
+    participant_id: int
+    form_name: str
+    data: dict
+
+
+class RandomizeRequest(BaseModel):
+    participant_id: int
+
+
+class EproSubmission(BaseModel):
+    participant_id: int
+    instrument_id: int
+    responses: dict
+
+
+class TmfDocument(BaseModel):
+    study_id: int
+    zone: str
+    artifact: str
+    title: str
+    version: str = "1.0"
+    status: str = "draft"
+
+
+def _bad_request(fn, *args, **kwargs):
+    """Run a module function, translating ValueError into HTTP 400."""
+    try:
+        return fn(*args, **kwargs)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
 # ---------- Core CTMS endpoints ----------
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "ai_enabled": ai_available()}
+    return {
+        "status": "ok",
+        "ai_enabled": ai_available(),
+        "database": "mongodb" if os.environ.get("MONGODB_URI") else "mongomock (in-memory)",
+    }
 
 
 @app.get("/api/dashboard")
 def dashboard():
-    with get_db() as db:
-        studies = rows_to_dicts(db.execute(
-            """
-            SELECT s.*,
-                   (SELECT COUNT(*) FROM participants p WHERE p.study_id = s.id AND p.status NOT IN ('Screen Failure')) AS enrolled,
-                   (SELECT COUNT(*) FROM sites st WHERE st.study_id = s.id) AS site_count,
-                   (SELECT COUNT(*) FROM adverse_events ae WHERE ae.study_id = s.id) AS ae_count,
-                   (SELECT COUNT(*) FROM adverse_events ae WHERE ae.study_id = s.id AND ae.serious = 1) AS sae_count,
-                   (SELECT COUNT(*) FROM data_queries q WHERE q.study_id = s.id AND q.status = 'open') AS open_queries
-            FROM studies s ORDER BY s.id
-            """
-        ).fetchall())
-        totals = db.execute(
-            """
-            SELECT
-                (SELECT COUNT(*) FROM studies) AS studies,
-                (SELECT COUNT(*) FROM sites) AS sites,
-                (SELECT COUNT(*) FROM participants WHERE status NOT IN ('Screen Failure')) AS participants,
-                (SELECT COUNT(*) FROM adverse_events WHERE serious = 1) AS saes,
-                (SELECT COUNT(*) FROM data_queries WHERE status = 'open') AS open_queries
-            """
-        ).fetchone()
-    return {"totals": dict(totals), "studies": studies, "ai_enabled": ai_available()}
+    db = get_db()
+    studies = []
+    for s in find_all("studies", sort=[("id", 1)]):
+        sid = s["id"]
+        studies.append({
+            **s,
+            "enrolled": db.participants.count_documents({"study_id": sid, "status": {"$ne": "Screen Failure"}}),
+            "site_count": db.sites.count_documents({"study_id": sid}),
+            "ae_count": db.adverse_events.count_documents({"study_id": sid}),
+            "sae_count": db.adverse_events.count_documents({"study_id": sid, "serious": 1}),
+            "open_queries": db.data_queries.count_documents({"study_id": sid, "status": "open"}),
+        })
+    totals = {
+        "studies": db.studies.count_documents({}),
+        "sites": db.sites.count_documents({}),
+        "participants": db.participants.count_documents({"status": {"$ne": "Screen Failure"}}),
+        "saes": db.adverse_events.count_documents({"serious": 1}),
+        "open_queries": db.data_queries.count_documents({"status": "open"}),
+        "pro_alerts": db.epro_submissions.count_documents({"alert": True}),
+    }
+    return {"totals": totals, "studies": studies, "ai_enabled": ai_available()}
 
 
 @app.get("/api/studies/{study_id}")
 def study_detail(study_id: int):
-    with get_db() as db:
-        study = db.execute("SELECT * FROM studies WHERE id = ?", (study_id,)).fetchone()
-        if not study:
-            raise HTTPException(404, "Study not found")
-        sites = rows_to_dicts(db.execute("SELECT * FROM sites WHERE study_id = ?", (study_id,)).fetchall())
-        participants = rows_to_dicts(db.execute(
-            "SELECT p.*, st.name AS site_name FROM participants p JOIN sites st ON st.id = p.site_id WHERE p.study_id = ?",
-            (study_id,),
-        ).fetchall())
-        aes = rows_to_dicts(db.execute(
-            "SELECT ae.*, p.subject_code FROM adverse_events ae JOIN participants p ON p.id = ae.participant_id WHERE ae.study_id = ? ORDER BY ae.reported_at DESC",
-            (study_id,),
-        ).fetchall())
-        queries = rows_to_dicts(db.execute(
-            "SELECT * FROM data_queries WHERE study_id = ? ORDER BY created_at DESC",
-            (study_id,),
-        ).fetchall())
-    return {"study": dict(study), "sites": sites, "participants": participants, "adverse_events": aes, "queries": queries}
+    study = find_one("studies", {"id": study_id})
+    if not study:
+        raise HTTPException(404, "Study not found")
+    sites = find_all("sites", {"study_id": study_id})
+    site_names = {s["id"]: s["name"] for s in sites}
+    participants = find_all("participants", {"study_id": study_id}, sort=[("id", 1)])
+    for p in participants:
+        p["site_name"] = site_names.get(p["site_id"], "?")
+    subjects = {p["id"]: p["subject_code"] for p in participants}
+    aes = find_all("adverse_events", {"study_id": study_id}, sort=[("id", -1)])
+    for a in aes:
+        a["subject_code"] = subjects.get(a["participant_id"], "?")
+    queries = find_all("data_queries", {"study_id": study_id}, sort=[("id", -1)])
+    return {"study": study, "sites": sites, "participants": participants,
+            "adverse_events": aes, "queries": queries}
+
+
+# ---------- EDC ----------
+
+@app.get("/api/edc/forms")
+def edc_forms():
+    return {"forms": edc.list_forms()}
+
+
+@app.get("/api/edc/records")
+def edc_records(study_id: int):
+    return {"records": edc.list_records(study_id)}
+
+
+@app.post("/api/edc/records")
+def edc_submit(sub: CrfSubmission):
+    return _bad_request(edc.submit_record, sub.study_id, sub.participant_id, sub.form_name, sub.data)
+
+
+# ---------- RTSM ----------
+
+@app.post("/api/rtsm/randomize")
+def rtsm_randomize(req: RandomizeRequest):
+    return _bad_request(rtsm.randomize, req.participant_id)
+
+
+@app.get("/api/rtsm/supply")
+def rtsm_supply(study_id: int):
+    return _bad_request(rtsm.supply_overview, study_id)
+
+
+# ---------- ePRO ----------
+
+@app.get("/api/epro/instruments")
+def epro_instruments():
+    return {"instruments": epro.list_instruments()}
+
+
+@app.get("/api/epro/submissions")
+def epro_submissions(study_id: int):
+    return {"submissions": epro.list_submissions(study_id)}
+
+
+@app.post("/api/epro/submissions")
+def epro_submit(sub: EproSubmission):
+    return _bad_request(epro.submit, sub.participant_id, sub.instrument_id, sub.responses)
+
+
+# ---------- eTMF ----------
+
+@app.get("/api/etmf/{study_id}")
+def etmf_study(study_id: int):
+    return _bad_request(etmf.study_tmf, study_id)
+
+
+@app.post("/api/etmf/documents")
+def etmf_add(doc: TmfDocument):
+    return _bad_request(etmf.add_document, doc.study_id, doc.zone, doc.artifact,
+                        doc.title, doc.version, doc.status)
+
+
+@app.post("/api/etmf/documents/{doc_id}/approve")
+def etmf_approve(doc_id: int):
+    return _bad_request(etmf.approve_document, doc_id)
 
 
 # ---------- AI module endpoints ----------
@@ -115,21 +213,22 @@ def study_detail(study_id: int):
 @app.post("/api/ai/protocol")
 def ai_protocol(concept: ProtocolConcept):
     result = generate_protocol(concept.model_dump())
-    with get_db() as db:
-        db.execute(
-            "INSERT INTO protocols (title, indication, phase, content_json, generated_by) VALUES (?,?,?,?,?)",
-            (result.get("title", "Untitled"), concept.indication, concept.phase,
-             json.dumps(result), result.get("_generated_by", "unknown")),
-        )
+    insert("protocols", {
+        "title": result.get("title", "Untitled"),
+        "indication": concept.indication,
+        "phase": concept.phase,
+        "content": result,
+        "generated_by": result.get("_generated_by", "unknown"),
+        "created_at": now_iso(),
+    })
     return result
 
 
 @app.get("/api/ai/protocols")
 def list_protocols():
-    with get_db() as db:
-        rows = rows_to_dicts(db.execute(
-            "SELECT id, title, indication, phase, generated_by, created_at FROM protocols ORDER BY id DESC LIMIT 20"
-        ).fetchall())
+    rows = find_all("protocols", sort=[("id", -1)])[:20]
+    for r in rows:
+        r.pop("content", None)
     return {"protocols": rows}
 
 
@@ -145,36 +244,33 @@ def ai_code_events(req: CodingRequest):
 
 @app.post("/api/ai/data-review/{study_id}")
 def ai_data_review(study_id: int):
-    with get_db() as db:
-        study = db.execute("SELECT * FROM studies WHERE id = ?", (study_id,)).fetchone()
-        if not study:
-            raise HTTPException(404, "Study not found")
-        study = dict(study)
-        participants = rows_to_dicts(db.execute(
-            "SELECT * FROM participants WHERE study_id = ?", (study_id,)
-        ).fetchall())
-        aes = rows_to_dicts(db.execute(
-            "SELECT * FROM adverse_events WHERE study_id = ?", (study_id,)
-        ).fetchall())
+    study = find_one("studies", {"id": study_id})
+    if not study:
+        raise HTTPException(404, "Study not found")
+    participants = find_all("participants", {"study_id": study_id})
+    aes = find_all("adverse_events", {"study_id": study_id})
 
-        findings = run_edit_checks(study, participants, aes)
+    findings = run_edit_checks(study, participants, aes)
 
-        # Persist findings as open data queries, skipping duplicates already raised.
-        existing = {
-            (q["participant_id"], q["field"])
-            for q in rows_to_dicts(db.execute(
-                "SELECT participant_id, field FROM data_queries WHERE study_id = ?", (study_id,)
-            ).fetchall())
-        }
-        created = 0
-        for f in findings:
-            key = (f["participant_id"], f["field"])
-            if key not in existing:
-                db.execute(
-                    "INSERT INTO data_queries (study_id, participant_id, field, issue, severity) VALUES (?,?,?,?,?)",
-                    (study_id, f["participant_id"], f["field"], f["issue"], f["severity"]),
-                )
-                created += 1
+    # Persist findings as open data queries, skipping duplicates already raised.
+    existing = {
+        (q["participant_id"], q["field"])
+        for q in find_all("data_queries", {"study_id": study_id})
+    }
+    created = 0
+    for f in findings:
+        key = (f["participant_id"], f["field"])
+        if key not in existing:
+            insert("data_queries", {
+                "study_id": study_id,
+                "participant_id": f["participant_id"],
+                "field": f["field"],
+                "issue": f["issue"],
+                "severity": f["severity"],
+                "status": "open",
+                "created_at": now_iso(),
+            })
+            created += 1
 
     narrative = review_narrative(study, findings, len(participants))
     return {

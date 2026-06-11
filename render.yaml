@@ -1,0 +1,20 @@
+# Render Blueprint — deploy FusionTrials as a web service.
+# MongoDB is external (MongoDB Atlas free tier works): set MONGODB_URI
+# in the Render dashboard after the first deploy.
+services:
+  - type: web
+    name: fusiontrials
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.6
+      - key: MONGODB_URI
+        sync: false   # set in dashboard: mongodb+srv://user:pass@cluster.mongodb.net
+      - key: MONGODB_DB
+        value: fusiontrials
+      - key: ANTHROPIC_API_KEY
+        sync: false   # optional — enables Claude-powered AI features

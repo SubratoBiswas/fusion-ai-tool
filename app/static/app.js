@@ -59,6 +59,7 @@ async function loadDashboard() {
       [t.participants, "Participants enrolled"],
       [t.saes, "Serious adverse events"],
       [t.open_queries, "Open data queries"],
+      [t.pro_alerts, "ePRO symptom alerts"],
     ].map(([n, l]) => `<div class="kpi"><div class="num">${n}</div><div class="lbl">${l}</div></div>`).join("");
 
     $("#study-cards").innerHTML = data.studies.map((s) => {
@@ -83,14 +84,36 @@ async function loadDashboard() {
     document.querySelectorAll(".study-card").forEach((c) =>
       c.addEventListener("click", () => loadStudyDetail(c.dataset.id)));
 
-    // populate data-quality study selector
-    $("#quality-study").innerHTML = data.studies
+    // populate every study selector (data quality + EDC/RTSM/ePRO/eTMF)
+    studiesCache = data.studies;
+    const options = data.studies
       .map((s) => `<option value="${s.id}">${esc(s.protocol_id)} — ${esc(s.title)}</option>`)
       .join("");
+    document.querySelectorAll("select.study-select").forEach((sel) => {
+      const prev = sel.value;
+      sel.innerHTML = options;
+      if (prev) sel.value = prev;
+    });
+    $("#quality-study").innerHTML = options;
+    initModulesOnce();
   } catch (err) {
     showError($("#kpis"), err);
   }
 }
+
+let studiesCache = [];
+const participantsCache = {};
+
+async function participantsFor(studyId, { activeOnly = true } = {}) {
+  if (!participantsCache[studyId]) {
+    const d = await api(`/api/studies/${studyId}`);
+    participantsCache[studyId] = d.participants;
+  }
+  const all = participantsCache[studyId];
+  return activeOnly ? all.filter((p) => !["Screen Failure", "Withdrawn"].includes(p.status)) : all;
+}
+
+function invalidateParticipants(studyId) { delete participantsCache[studyId]; }
 
 async function loadStudyDetail(id) {
   const el = $("#study-detail");
@@ -265,6 +288,242 @@ $("#registry-form").addEventListener("submit", async (e) => {
     </div>`;
   } catch (err) { showError(out, err); }
   btn.disabled = false;
+});
+
+/* ================= EDC / RTSM / ePRO / eTMF modules ================= */
+
+let modulesInitialized = false;
+let crfForms = [];
+let eproInstruments = [];
+
+async function initModulesOnce() {
+  if (modulesInitialized) return;
+  modulesInitialized = true;
+  try {
+    crfForms = (await api("/api/edc/forms")).forms;
+    eproInstruments = (await api("/api/epro/instruments")).instruments;
+  } catch (err) { console.error(err); }
+
+  $("#edc-form").innerHTML = crfForms.map((f) => `<option>${esc(f.name)}</option>`).join("");
+  $("#epro-instrument").innerHTML = eproInstruments
+    .map((i) => `<option value="${i.id}">${esc(i.name)} (${esc(i.frequency)})</option>`).join("");
+
+  renderCrfFields();
+  renderEproQuestions();
+  refreshEdc(); refreshRtsm(); refreshEpro(); refreshEtmf();
+
+  $("#edc-study").addEventListener("change", refreshEdc);
+  $("#edc-form").addEventListener("change", renderCrfFields);
+  $("#rtsm-study").addEventListener("change", refreshRtsm);
+  $("#epro-study").addEventListener("change", refreshEpro);
+  $("#epro-instrument").addEventListener("change", renderEproQuestions);
+  $("#etmf-study").addEventListener("change", refreshEtmf);
+}
+
+async function fillParticipantSelect(selId, studyId) {
+  const parts = await participantsFor(studyId);
+  $(selId).innerHTML = parts
+    .map((p) => `<option value="${p.id}">${esc(p.subject_code)} — ${esc(p.site_name)}</option>`).join("");
+}
+
+/* ---------- EDC ---------- */
+function renderCrfFields() {
+  const tpl = crfForms.find((f) => f.name === $("#edc-form").value);
+  if (!tpl) { $("#edc-fields").innerHTML = ""; return; }
+  $("#edc-fields").innerHTML = tpl.fields.map((f) => {
+    const req = f.required ? " *" : "";
+    if (f.type === "select") {
+      return `<label>${esc(f.label)}${req}<select data-field="${esc(f.name)}">
+        <option value=""></option>${f.options.map((o) => `<option>${esc(o)}</option>`).join("")}</select></label>`;
+    }
+    const range = f.min !== undefined ? ` (${f.min}–${f.max})` : "";
+    return `<label>${esc(f.label)}${req}${range}<input type="number" step="any" data-field="${esc(f.name)}"></label>`;
+  }).join("");
+}
+
+async function refreshEdc() {
+  const studyId = $("#edc-study").value;
+  if (!studyId) return;
+  await fillParticipantSelect("#edc-participant", studyId);
+  try {
+    const recs = (await api(`/api/edc/records?study_id=${studyId}`)).records;
+    $("#edc-records").innerHTML = recs.length ? `<div class="card">
+      <table><tr><th>Subject</th><th>Form</th><th>Data</th><th>Status</th><th>Issues</th></tr>
+      ${recs.map((r) => `<tr>
+        <td class="mono">${esc(r.subject_code)}</td><td>${esc(r.form_name)}</td>
+        <td class="mono">${esc(Object.entries(r.data).map(([k, v]) => `${k}=${v}`).join(", "))}</td>
+        <td><span class="pill ${r.status === "clean" ? "green" : "amber"}">${esc(r.status)}</span></td>
+        <td>${r.validation_issues.map((i) => esc(i)).join("<br>") || "—"}</td></tr>`).join("")}
+      </table></div>` : `<p class="hint">No CRF records entered for this study yet.</p>`;
+  } catch (err) { showError($("#edc-records"), err); }
+}
+
+$("#edc-submit").addEventListener("click", async () => {
+  const out = $("#edc-result");
+  const data = {};
+  document.querySelectorAll("#edc-fields [data-field]").forEach((el) => {
+    if (el.value !== "") data[el.dataset.field] = el.value;
+  });
+  try {
+    const rec = await api("/api/edc/records", {
+      method: "POST",
+      body: JSON.stringify({
+        study_id: Number($("#edc-study").value),
+        participant_id: Number($("#edc-participant").value),
+        form_name: $("#edc-form").value,
+        data,
+      }),
+    });
+    out.innerHTML = rec.status === "clean"
+      ? `<div class="narrative">Record saved — all edit checks passed.</div>`
+      : `<div class="error-box">Record saved with ${rec.validation_issues.length} edit-check finding(s) — data queries opened:<br>${rec.validation_issues.map(esc).join("<br>")}</div>`;
+    refreshEdc(); loadDashboard();
+  } catch (err) { showError(out, err); }
+});
+
+/* ---------- RTSM ---------- */
+async function refreshRtsm() {
+  const studyId = $("#rtsm-study").value;
+  if (!studyId) return;
+  const out = $("#rtsm-overview");
+  try {
+    const d = await api(`/api/rtsm/supply?study_id=${studyId}`);
+    out.innerHTML = `<div class="card">
+      <h3>Arm allocation</h3>
+      <table><tr>${d.arms.map((a) => `<th>${esc(a)}</th>`).join("")}</tr>
+      <tr>${d.arms.map((a) => `<td>${d.allocations[a] ?? 0} subjects</td>`).join("")}</tr></table>
+      <h3>Awaiting randomization</h3>
+      ${d.pending_randomization.length ? `<table><tr><th>Subject</th><th>Site</th><th>Status</th><th></th></tr>
+      ${d.pending_randomization.map((p) => `<tr>
+        <td class="mono">${esc(p.subject_code)}</td><td>${esc(p.site_name)}</td><td>${statusPill(p.status)}</td>
+        <td><button class="ghost rtsm-rand" data-id="${p.id}">Randomize</button></td></tr>`).join("")}
+      </table>` : `<p class="hint">All eligible subjects are randomized.</p>`}
+      <h3>Kit inventory</h3>
+      <table><tr><th>Site</th><th>Arm</th><th>Available</th><th>Dispensed</th><th></th></tr>
+      ${d.inventory.map((r) => `<tr>
+        <td>${esc(r.site_name)}</td><td>${esc(r.arm)}</td><td>${r.available}</td><td>${r.dispensed}</td>
+        <td>${r.low_stock ? `<span class="pill red">low stock</span>` : ""}</td></tr>`).join("")}
+      </table></div>`;
+    document.querySelectorAll(".rtsm-rand").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        btn.disabled = true;
+        try {
+          const r = await api("/api/rtsm/randomize", {
+            method: "POST",
+            body: JSON.stringify({ participant_id: Number(btn.dataset.id) }),
+          });
+          $("#rtsm-result").innerHTML = `<div class="narrative">
+            Subject <strong>${esc(r.subject_code)}</strong> randomized to <strong>${esc(r.arm)}</strong>
+            ${r.kit_number ? ` — kit <span class="mono">${esc(r.kit_number)}</span> dispensed.` : "."}
+            ${r.warning ? `<br><span style="color:var(--amber)">${esc(r.warning)}</span>` : ""}</div>`;
+          invalidateParticipants($("#rtsm-study").value);
+          refreshRtsm(); loadDashboard();
+        } catch (err) { showError($("#rtsm-result"), err); btn.disabled = false; }
+      }));
+  } catch (err) { showError(out, err); }
+}
+
+/* ---------- ePRO ---------- */
+function renderEproQuestions() {
+  const inst = eproInstruments.find((i) => String(i.id) === $("#epro-instrument").value);
+  if (!inst) { $("#epro-questions").innerHTML = ""; return; }
+  $("#epro-questions").innerHTML = inst.questions.map((q) =>
+    `<label>${esc(q.text)} (0–10)<input type="number" min="0" max="10" data-code="${esc(q.code)}"></label>`).join("");
+}
+
+async function refreshEpro() {
+  const studyId = $("#epro-study").value;
+  if (!studyId) return;
+  await fillParticipantSelect("#epro-participant", studyId);
+  try {
+    const subs = (await api(`/api/epro/submissions?study_id=${studyId}`)).submissions;
+    $("#epro-submissions").innerHTML = subs.length ? `<div class="card">
+      <table><tr><th>Subject</th><th>Instrument</th><th>Responses</th><th>Score</th><th>Alert</th><th>Submitted</th></tr>
+      ${subs.map((s) => `<tr>
+        <td class="mono">${esc(s.subject_code)}</td><td>${esc(s.instrument_name)}</td>
+        <td class="mono">${esc(Object.entries(s.responses).map(([k, v]) => `${k}:${v}`).join(" "))}</td>
+        <td>${s.score}</td>
+        <td>${s.alert ? `<span class="pill red">symptom alert</span>` : "—"}</td>
+        <td>${esc(s.submitted_at)}</td></tr>`).join("")}
+      </table></div>` : `<p class="hint">No ePRO submissions for this study yet.</p>`;
+  } catch (err) { showError($("#epro-submissions"), err); }
+}
+
+$("#epro-submit").addEventListener("click", async () => {
+  const out = $("#epro-result");
+  const responses = {};
+  document.querySelectorAll("#epro-questions [data-code]").forEach((el) => {
+    responses[el.dataset.code] = el.value;
+  });
+  try {
+    const s = await api("/api/epro/submissions", {
+      method: "POST",
+      body: JSON.stringify({
+        participant_id: Number($("#epro-participant").value),
+        instrument_id: Number($("#epro-instrument").value),
+        responses,
+      }),
+    });
+    out.innerHTML = s.alert
+      ? `<div class="error-box">Submission recorded — symptom alert fired (item ≥ 8/10). A follow-up query was opened for the site.</div>`
+      : `<div class="narrative">Submission recorded — no alerts.</div>`;
+    refreshEpro(); loadDashboard();
+  } catch (err) { showError(out, err); }
+});
+
+/* ---------- eTMF ---------- */
+async function refreshEtmf() {
+  const studyId = $("#etmf-study").value;
+  if (!studyId) return;
+  const out = $("#etmf-overview");
+  try {
+    const d = await api(`/api/etmf/${studyId}`);
+    const zones = [...new Set(d.essential_artifacts.map((a) => a.zone))];
+    $("#etmf-zone").innerHTML = zones.map((z) => `<option>${esc(z)}</option>`).join("");
+    out.innerHTML = `<div class="card">
+      <h3>Inspection readiness — ${d.completeness_pct}%</h3>
+      <div class="bar"><span style="width:${d.completeness_pct}%"></span></div>
+      ${d.missing_essential.length ? `<h3>Missing essential artifacts</h3>
+      <ul>${d.missing_essential.map((m) => `<li><span class="mono">${esc(m.zone)}</span> — ${esc(m.artifact)}</li>`).join("")}</ul>` : `<p class="hint">All essential artifacts are filed and approved.</p>`}
+      <h3>Filed documents</h3>
+      ${d.documents.length ? `<table><tr><th>Zone</th><th>Artifact</th><th>Title</th><th>Version</th><th>Status</th><th></th></tr>
+      ${d.documents.map((doc) => `<tr>
+        <td class="mono">${esc(doc.zone)}</td><td>${esc(doc.artifact)}</td><td>${esc(doc.title)}</td>
+        <td>${esc(doc.version)}</td>
+        <td><span class="pill ${doc.status === "approved" ? "green" : doc.status === "final" ? "amber" : "dim"}">${esc(doc.status)}</span></td>
+        <td>${doc.status !== "approved" ? `<button class="ghost etmf-approve" data-id="${doc.id}">Approve</button>` : ""}</td></tr>`).join("")}
+      </table>` : `<p class="hint">No documents filed yet.</p>`}
+    </div>`;
+    document.querySelectorAll(".etmf-approve").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        btn.disabled = true;
+        try {
+          await api(`/api/etmf/documents/${btn.dataset.id}/approve`, { method: "POST" });
+          refreshEtmf();
+        } catch (err) { showError($("#etmf-result"), err); }
+      }));
+  } catch (err) { showError(out, err); }
+}
+
+$("#etmf-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  try {
+    await api("/api/etmf/documents", {
+      method: "POST",
+      body: JSON.stringify({
+        study_id: Number($("#etmf-study").value),
+        zone: fd.get("zone"),
+        artifact: fd.get("artifact"),
+        title: fd.get("title"),
+        version: fd.get("version") || "1.0",
+        status: fd.get("status"),
+      }),
+    });
+    $("#etmf-result").innerHTML = `<div class="narrative">Document filed.</div>`;
+    e.target.reset();
+    refreshEtmf();
+  } catch (err) { showError($("#etmf-result"), err); }
 });
 
 loadDashboard();

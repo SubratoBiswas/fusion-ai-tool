@@ -22,6 +22,10 @@
 
 <nav id="tabs">
   <button class="tab active" data-tab="dashboard">Dashboard</button>
+  <button class="tab" data-tab="edc">EDC</button>
+  <button class="tab" data-tab="rtsm">RTSM</button>
+  <button class="tab" data-tab="epro">ePRO</button>
+  <button class="tab" data-tab="etmf">eTMF</button>
   <button class="tab" data-tab="protocol">Protocol Designer</button>
   <button class="tab" data-tab="eligibility">Eligibility Screener</button>
   <button class="tab" data-tab="coding">Medical Coding</button>
@@ -36,6 +40,71 @@
     <h2>Active Studies</h2>
     <div id="study-cards" class="study-grid"></div>
     <div id="study-detail"></div>
+  </section>
+
+  <!-- ============ EDC ============ -->
+  <section id="panel-edc" class="panel">
+    <h2>Electronic Data Capture</h2>
+    <p class="hint">Enter CRF data with real-time edit checks — required fields, numeric ranges, and coded values. Out-of-range entries automatically raise data queries.</p>
+    <div class="card form-grid">
+      <label>Study <select id="edc-study" class="study-select"></select></label>
+      <label>Participant <select id="edc-participant"></select></label>
+      <label class="full">CRF form <select id="edc-form"></select></label>
+      <div id="edc-fields" class="full form-grid"></div>
+      <button id="edc-submit" class="primary full">Save CRF record</button>
+    </div>
+    <div id="edc-result"></div>
+    <h3>Entered records</h3>
+    <div id="edc-records"></div>
+  </section>
+
+  <!-- ============ RTSM ============ -->
+  <section id="panel-rtsm" class="panel">
+    <h2>Randomization &amp; Trial Supply Management</h2>
+    <p class="hint">Randomize subjects via minimization (balanced arm allocation) with automatic kit dispensing from the site's inventory. Low-stock positions are flagged for resupply.</p>
+    <div class="card form-grid">
+      <label>Study <select id="rtsm-study" class="study-select"></select></label>
+    </div>
+    <div id="rtsm-result"></div>
+    <div id="rtsm-overview"></div>
+  </section>
+
+  <!-- ============ ePRO ============ -->
+  <section id="panel-epro" class="panel">
+    <h2>Electronic Patient-Reported Outcomes</h2>
+    <p class="hint">Capture patient diaries and quality-of-life instruments on a 0–10 scale. Any item scored 8 or higher fires a symptom alert and opens a follow-up query for the site.</p>
+    <div class="card form-grid">
+      <label>Study <select id="epro-study" class="study-select"></select></label>
+      <label>Participant <select id="epro-participant"></select></label>
+      <label class="full">Instrument <select id="epro-instrument"></select></label>
+      <div id="epro-questions" class="full form-grid"></div>
+      <button id="epro-submit" class="primary full">Submit responses</button>
+    </div>
+    <div id="epro-result"></div>
+    <h3>Submissions</h3>
+    <div id="epro-submissions"></div>
+  </section>
+
+  <!-- ============ eTMF ============ -->
+  <section id="panel-etmf" class="panel">
+    <h2>Electronic Trial Master File</h2>
+    <p class="hint">Track essential documents against the TMF Reference Model, monitor inspection-readiness, and see which artifacts are still missing before an audit.</p>
+    <div class="card form-grid">
+      <label>Study <select id="etmf-study" class="study-select"></select></label>
+    </div>
+    <div id="etmf-overview"></div>
+    <h3>File a document</h3>
+    <form id="etmf-form" class="card form-grid">
+      <label>Zone <select name="zone" id="etmf-zone"></select></label>
+      <label>Artifact <input name="artifact" required placeholder="e.g. Protocol"></label>
+      <label>Title <input name="title" required placeholder="e.g. FUS-ONC-301 Protocol v3.0"></label>
+      <label>Version <input name="version" value="1.0"></label>
+      <label>Status
+        <select name="status"><option>draft</option><option>final</option><option>approved</option></select>
+      </label>
+      <button type="submit" class="primary">Add document</button>
+    </form>
+    <div id="etmf-result"></div>
   </section>
 
   <!-- ============ PROTOCOL DESIGNER ============ -->
