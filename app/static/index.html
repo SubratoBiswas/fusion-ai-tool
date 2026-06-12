@@ -287,6 +287,38 @@
   Fusion AI eClinical Suite demo platform — AI outputs are drafts for qualified human review and are not a substitute for medical, statistical, or regulatory judgment.
 </footer>
 
+<!-- ============ FUSION ASSISTANT (chatbot) ============ -->
+<button id="chat-toggle" title="Fusion Assistant">✦</button>
+<div id="chat-panel">
+  <div id="chat-header">
+    <div>
+      <strong>Fusion Assistant</strong>
+      <div id="chat-mode" class="tagline">connecting…</div>
+    </div>
+    <div>
+      <button id="chat-clear" class="ghost" title="New conversation">⟲</button>
+      <button id="chat-close" class="ghost" title="Close">✕</button>
+    </div>
+  </div>
+  <div id="chat-messages">
+    <div class="chat-msg assistant">
+      Hi — I'm <strong>Fusion Assistant</strong>. Ask me anything about your studies
+      (enrollment, queries, safety cases, supply, consent), request a study report,
+      or ask general clinical research questions.
+    </div>
+  </div>
+  <div id="chat-quick">
+    <button class="chat-chip" data-q="Portfolio overview">Portfolio overview</button>
+    <button class="chat-chip" data-q="Generate a report for FUS-ONC-301">Report: FUS-ONC-301</button>
+    <button class="chat-chip" data-q="Open queries for FUS-ONC-301">Open queries</button>
+    <button class="chat-chip" data-q="Safety cases">Safety cases</button>
+  </div>
+  <form id="chat-form">
+    <input id="chat-input" autocomplete="off" placeholder="Ask about your trials, or request a report…">
+    <button type="submit" class="primary">Send</button>
+  </form>
+</div>
+
 <script src="/static/app.js"></script>
 </body>
 </html>

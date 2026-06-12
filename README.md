@@ -37,6 +37,15 @@ The product was shaped by research into the clinical research software landscape
 |---|---|---|
 | 11 | **24/7 Reporting** | Always-available study reports aggregating every module — enrollment, data quality, safety, ePRO, supply, consent — plus CSV dataset exports (participants, AEs, queries, CRFs, ePRO, safety cases). |
 
+### Fusion Assistant (chatbot)
+
+A floating chat widget available on every screen. It answers any user query and generates reports on demand:
+
+- **Platform data Q&A** — "How is enrollment going?", "Any open SUSARs?", "Open queries for FUS-CVD-201?" The assistant is a Claude agent with six tools over the live MongoDB data (portfolio overview, study reports, queries, safety cases, adverse events, registry search), so answers come from real data — never invented numbers.
+- **Report generation** — "Generate a report for FUS-ONC-301" returns a full markdown report (enrollment by site, data quality, safety by SOC, ePRO, supply, consent) with CSV export links.
+- **General clinical research Q&A** — GCP, trial phases, terminology, regulatory concepts (requires `ANTHROPIC_API_KEY`).
+- **Offline mode** — without an API key, a rule-based intent engine serves the same data-backed answers and reports over the identical tools.
+
 ### AI studio (Claude-powered)
 
 | # | Module | What it does |

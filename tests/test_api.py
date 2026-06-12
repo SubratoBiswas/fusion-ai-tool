@@ -350,6 +350,80 @@ def test_report_csv_unknown_dataset(client):
     assert client.get("/api/reports/study/1/export?dataset=nope").status_code == 400
 
 
+# ---------- Fusion Assistant (chatbot) ----------
+
+def _ask(client, text, history=None):
+    messages = (history or []) + [{"role": "user", "content": text}]
+    r = client.post("/api/assistant/chat", json={"messages": messages})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_assistant_help(client):
+    body = _ask(client, "hello, what can you do?")
+    assert body["_generated_by"] == "offline-intents"
+    assert "Fusion Assistant" in body["reply"]
+
+
+def test_assistant_portfolio_overview(client):
+    body = _ask(client, "show me the portfolio overview")
+    assert "get_portfolio_overview" in body["tools_used"]
+    assert "FUS-ONC-301" in body["reply"]
+    assert "FUS-NEU-110" in body["reply"]
+
+
+def test_assistant_generates_study_report(client):
+    body = _ask(client, "generate a report for FUS-ONC-301")
+    assert "get_study_report" in body["tools_used"]
+    assert "Study report — FUS-ONC-301" in body["reply"]
+    assert "Enrollment" in body["reply"]
+    assert "Safety" in body["reply"]
+    assert "/api/reports/study/1/export?dataset=" in body["reply"]  # CSV links included
+
+
+def test_assistant_report_by_title_keyword(client):
+    body = _ask(client, "report on resistant hypertension")
+    assert "FUS-CVD-201" in body["reply"]
+
+
+def test_assistant_open_queries(client):
+    body = _ask(client, "open queries for FUS-ONC-301")
+    assert "list_open_queries" in body["tools_used"]
+    assert "quer" in body["reply"].lower()
+
+
+def test_assistant_safety_cases(client):
+    body = _ask(client, "show safety cases for FUS-ONC-301")
+    assert "list_safety_cases" in body["tools_used"]
+    assert "CASE-" in body["reply"]
+
+
+def test_assistant_saes(client):
+    body = _ask(client, "list SAEs for FUS-ONC-301")
+    assert "list_adverse_events" in body["tools_used"]
+
+
+def test_assistant_report_without_study_asks(client):
+    body = _ask(client, "generate a report")
+    assert "Which study" in body["reply"]
+
+
+def test_assistant_keeps_history(client):
+    history = [
+        {"role": "user", "content": "portfolio overview"},
+        {"role": "assistant", "content": "Here is the portfolio."},
+    ]
+    body = _ask(client, "report for FUS-ONC-301", history=history)
+    assert "Study report — FUS-ONC-301" in body["reply"]
+
+
+def test_assistant_rejects_empty(client):
+    r = client.post("/api/assistant/chat", json={"messages": []})
+    assert r.status_code == 422
+    r2 = client.post("/api/assistant/chat", json={"messages": [{"role": "assistant", "content": "hi"}]})
+    assert r2.status_code == 400
+
+
 # ---------- AI fallbacks ----------
 
 def test_protocol_offline_generation(client):

@@ -16,6 +16,7 @@ from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from .ai.assistant import chat as assistant_chat
 from .ai.client import ai_available
 from .ai.coding import code_terms
 from .ai.data_quality import review_narrative, run_edit_checks
@@ -121,6 +122,15 @@ class NewSite(BaseModel):
 
 class SiteStatus(BaseModel):
     status: str
+
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+
+class ChatRequest(BaseModel):
+    messages: list[ChatMessage] = Field(min_length=1)
 
 
 def _bad_request(fn, *args, **kwargs):
@@ -352,6 +362,13 @@ def report_export(study_id: int, dataset: str):
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ---------- Fusion Assistant (chatbot) ----------
+
+@app.post("/api/assistant/chat")
+def assistant_endpoint(req: ChatRequest):
+    return _bad_request(assistant_chat, [m.model_dump() for m in req.messages])
 
 
 # ---------- AI module endpoints ----------

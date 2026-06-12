@@ -51,6 +51,9 @@ async function loadDashboard() {
     const badge = $("#ai-badge");
     badge.textContent = data.ai_enabled ? "AI: Claude connected" : "AI: offline mode";
     badge.className = "ai-badge " + (data.ai_enabled ? "on" : "off");
+    $("#chat-mode").textContent = data.ai_enabled
+      ? "Claude-powered · live platform data"
+      : "offline mode · live platform data";
 
     const t = data.totals;
     $("#kpis").innerHTML = [
@@ -817,5 +820,95 @@ $("#rep-run").addEventListener("click", async () => {
     </div>`;
   } catch (err) { showError(out, err); }
 });
+
+/* ================= Fusion Assistant (chatbot) ================= */
+
+const chatHistory = [];
+
+/* Minimal markdown renderer for assistant replies (headings, bold, italics,
+   inline code, links, lists, tables, paragraphs). Input is escaped first. */
+function renderMarkdown(md) {
+  const lines = esc(md).split("\n");
+  const out = [];
+  let listOpen = false, tableRows = [];
+
+  const inline = (s) => s
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>")
+    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+
+  const flushList = () => { if (listOpen) { out.push("</ul>"); listOpen = false; } };
+  const flushTable = () => {
+    if (!tableRows.length) return;
+    const rows = tableRows.filter((r) => !/^\|[\s\-|:]+\|$/.test(r));
+    out.push("<table>" + rows.map((r, i) => {
+      const cells = r.slice(1, -1).split("|").map((c) => inline(c.trim()));
+      const tag = i === 0 ? "th" : "td";
+      return "<tr>" + cells.map((c) => `<${tag}>${c}</${tag}>`).join("") + "</tr>";
+    }).join("") + "</table>");
+    tableRows = [];
+  };
+
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+    if (/^\|.*\|$/.test(line.trim())) { flushList(); tableRows.push(line.trim()); continue; }
+    flushTable();
+    const h = line.match(/^(#{1,4})\s+(.*)/);
+    if (h) { flushList(); out.push(`<h${h[1].length + 1}>${inline(h[2])}</h${h[1].length + 1}>`); continue; }
+    const li = line.match(/^[-*]\s+(.*)/);
+    if (li) { if (!listOpen) { out.push("<ul>"); listOpen = true; } out.push(`<li>${inline(li[1])}</li>`); continue; }
+    flushList();
+    if (line.trim() === "") continue;
+    out.push(`<p>${inline(line)}</p>`);
+  }
+  flushList(); flushTable();
+  return out.join("");
+}
+
+function chatAppend(role, html, toolsUsed) {
+  const div = document.createElement("div");
+  div.className = `chat-msg ${role}`;
+  div.innerHTML = html + (toolsUsed && toolsUsed.length
+    ? `<div class="tools-note">data: ${toolsUsed.map(esc).join(", ")}</div>` : "");
+  $("#chat-messages").appendChild(div);
+  $("#chat-messages").scrollTop = $("#chat-messages").scrollHeight;
+  return div;
+}
+
+async function chatSend(text) {
+  text = text.trim();
+  if (!text) return;
+  chatAppend("user", esc(text));
+  chatHistory.push({ role: "user", content: text });
+  $("#chat-input").value = "";
+  const pending = chatAppend("assistant thinking", "✦ thinking…");
+  try {
+    const r = await api("/api/assistant/chat", {
+      method: "POST",
+      body: JSON.stringify({ messages: chatHistory }),
+    });
+    pending.remove();
+    chatHistory.push({ role: "assistant", content: r.reply });
+    chatAppend("assistant", renderMarkdown(r.reply), r.tools_used);
+  } catch (err) {
+    pending.remove();
+    chatAppend("assistant", `<span style="color:var(--red)">${esc(err.message || err)}</span>`);
+    chatHistory.pop(); // let the user retry the same question
+  }
+}
+
+$("#chat-toggle").addEventListener("click", () => {
+  $("#chat-panel").classList.toggle("open");
+  if ($("#chat-panel").classList.contains("open")) $("#chat-input").focus();
+});
+$("#chat-close").addEventListener("click", () => $("#chat-panel").classList.remove("open"));
+$("#chat-clear").addEventListener("click", () => {
+  chatHistory.length = 0;
+  $("#chat-messages").innerHTML = `<div class="chat-msg assistant">New conversation — what would you like to know?</div>`;
+});
+$("#chat-form").addEventListener("submit", (e) => { e.preventDefault(); chatSend($("#chat-input").value); });
+document.querySelectorAll(".chat-chip").forEach((chip) =>
+  chip.addEventListener("click", () => { $("#chat-panel").classList.add("open"); chatSend(chip.dataset.q); }));
 
 loadDashboard();
