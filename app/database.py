@@ -237,6 +237,34 @@ SEED_TMF_DOCS = [
     (2, "04 IRB or IEC", "Ethics Committee Approval", "Cleveland IRB Approval", "final", "1.0"),
 ]
 
+# eConsent: informed consent form versions per study.
+SEED_CONSENT_VERSIONS = [
+    # (study_id, version, title, is_current)
+    (1, "1.0", "FUS-ONC-301 Main ICF v1.0", False),
+    (1, "2.0", "FUS-ONC-301 Main ICF v2.0 (Amendment 1)", True),
+    (2, "1.0", "FUS-CVD-201 Main ICF v1.0", True),
+    (3, "1.0", "FUS-END-102 Main ICF v1.0", True),
+    (4, "1.0", "FUS-NEU-110 Main ICF v1.0", True),
+]
+
+# eConsent records: (participant_id, consent_version_index). Participants of
+# study 1 on version 1 (index 1) need re-consent; 301-007 (id 7) has no
+# consent on file at all -> critical finding.
+SEED_CONSENT_RECORDS = [
+    (1, 2), (2, 2), (3, 2), (4, 1), (5, 1), (6, 1),
+    (8, 3), (9, 3), (11, 3), (12, 3),
+    (13, 4), (14, 4),
+    (15, 5), (16, 5), (17, 5), (18, 5),
+]
+
+# Safety Database: cases opened for the seeded serious AEs (ae ids 3, 6, 10).
+SEED_SAFETY_CASES = [
+    # (ae_id, status, causality, expectedness, seriousness_criteria)
+    (3, "under_review", "possibly related", "unexpected", ["hospitalization"]),
+    (6, "closed", "unlikely related", "expected", ["medically significant"]),
+    (10, "new", None, None, []),
+]
+
 
 def init_db(seed: bool = True):
     db = get_db()
@@ -287,4 +315,30 @@ def init_db(seed: bool = True):
             "study_id": study_id, "zone": zone, "artifact": artifact, "title": title,
             "status": status, "version": version, "uploaded_by": "seed",
             "uploaded_at": now_iso(),
+        })
+    for study_id, version, title, is_current in SEED_CONSENT_VERSIONS:
+        insert("consent_versions", {
+            "study_id": study_id, "version": version, "title": title,
+            "is_current": is_current, "effective_date": now_iso(),
+        })
+    for participant_id, version_id in SEED_CONSENT_RECORDS:
+        p = find_one("participants", {"id": participant_id})
+        insert("consent_records", {
+            "study_id": p["study_id"], "participant_id": participant_id,
+            "consent_version_id": version_id, "consented_at": now_iso(),
+        })
+    # A site still in activation for study 1 (no participants yet).
+    insert("sites", {"study_id": 1, "name": "Singapore Oncology Partners", "country": "Singapore",
+                     "pi_name": "Dr. Wei Tan", "status": "Pending Activation"})
+    for ae_id, status, causality, expectedness, criteria in SEED_SAFETY_CASES:
+        ae = find_one("adverse_events", {"id": ae_id})
+        insert("safety_cases", {
+            "case_number": f"CASE-2026-{ae_id:04d}",
+            "study_id": ae["study_id"], "participant_id": ae["participant_id"],
+            "ae_id": ae_id, "status": status,
+            "causality": causality, "expectedness": expectedness,
+            "seriousness_criteria": criteria,
+            "expedited": bool(causality and "related" in causality and causality != "unlikely related"
+                              and expectedness == "unexpected"),
+            "narrative": None, "opened_at": now_iso(), "report_due": None,
         })

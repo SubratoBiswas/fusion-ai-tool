@@ -38,7 +38,7 @@ def test_dashboard_seeded(client):
     assert r.status_code == 200
     body = r.json()
     assert body["totals"]["studies"] == 4
-    assert body["totals"]["sites"] == 8
+    assert body["totals"]["sites"] == 9  # 8 active + 1 pending activation
     assert body["totals"]["participants"] > 0
     assert body["totals"]["pro_alerts"] >= 1  # seeded fatigue=9 submission
     assert len(body["studies"]) == 4
@@ -195,6 +195,161 @@ def test_etmf_file_and_approve_raises_completeness(client):
     assert client.get("/api/etmf/1").json()["completeness_pct"] > before
 
 
+# ---------- AE/SAE Tracking ----------
+
+def test_ae_report_autocodes_and_opens_case(client):
+    r = client.post("/api/safety/ae", json={
+        "study_id": 1, "participant_id": 1,
+        "verbatim_term": "severe vomiting overnight",
+        "severity": "Severe", "serious": True, "outcome": "Ongoing",
+    })
+    assert r.status_code == 200
+    body = r.json()
+    assert body["adverse_event"]["preferred_term"] == "Vomiting"
+    assert body["safety_case"] is not None
+    assert body["safety_case"]["case_number"].startswith("CASE-")
+    assert body["safety_case"]["status"] == "new"
+
+
+def test_ae_nonserious_no_case(client):
+    r = client.post("/api/safety/ae", json={
+        "study_id": 1, "participant_id": 2,
+        "verbatim_term": "mild itching on arms", "severity": "Mild", "serious": False,
+    })
+    assert r.status_code == 200
+    assert r.json()["safety_case"] is None
+
+
+def test_ae_invalid_severity(client):
+    r = client.post("/api/safety/ae", json={
+        "study_id": 1, "participant_id": 1,
+        "verbatim_term": "headache", "severity": "Catastrophic", "serious": False,
+    })
+    assert r.status_code == 400
+
+
+# ---------- Safety Database ----------
+
+def test_safety_cases_seeded(client):
+    cases = client.get("/api/safety/cases?study_id=1").json()["cases"]
+    assert any(c["status"] == "under_review" and c["expedited"] for c in cases)
+
+
+def test_safety_case_assessment_susar_clock(client):
+    cases = client.get("/api/safety/cases?study_id=4").json()["cases"]
+    new_case = next(c for c in cases if c["status"] == "new")
+    r = client.post(f"/api/safety/cases/{new_case['id']}/assess", json={
+        "causality": "possibly related", "expectedness": "unexpected",
+        "seriousness_criteria": ["life-threatening"],
+    })
+    assert r.status_code == 200
+    body = r.json()
+    assert body["expedited"] is True
+    assert body["report_due"] is not None
+    assert body["days_to_due"] <= 7  # fatal/life-threatening -> 7-day clock
+
+
+def test_safety_narrative_and_close(client):
+    cases = client.get("/api/safety/cases?study_id=4").json()["cases"]
+    case = next(c for c in cases if c["status"] == "under_review")
+    n = client.post(f"/api/safety/cases/{case['id']}/narrative")
+    assert n.status_code == 200
+    assert "narrative" in n.json() and len(n.json()["narrative"]) > 50
+    c = client.post(f"/api/safety/cases/{case['id']}/close")
+    assert c.status_code == 200
+    assert c.json()["status"] == "closed"
+
+
+def test_safety_close_requires_assessment(client):
+    # The just-reported vomiting case is unassessed -> cannot close
+    cases = client.get("/api/safety/cases?study_id=1").json()["cases"]
+    unassessed = next(c for c in cases if c["status"] == "new" and not c["causality"])
+    assert client.post(f"/api/safety/cases/{unassessed['id']}/close").status_code == 400
+
+
+# ---------- Data Management ----------
+
+def test_dm_query_workbench_respond_close(client):
+    # Open queries already exist from the EDC edit-check test above
+    queries = client.get("/api/dm/queries?study_id=1&status=open").json()["queries"]
+    assert len(queries) > 0
+    q = queries[0]
+    r = client.post(f"/api/dm/queries/{q['id']}/respond", json={"response": "Source verified; value confirmed correct."})
+    assert r.status_code == 200
+    assert r.json()["status"] == "answered"
+    c = client.post(f"/api/dm/queries/{q['id']}/close")
+    assert c.json()["status"] == "closed"
+    # Closed query cannot be answered again
+    assert client.post(f"/api/dm/queries/{q['id']}/respond", json={"response": "late"}).status_code == 400
+
+
+# ---------- eConsent ----------
+
+def test_econsent_status_flags(client):
+    d = client.get("/api/econsent/status?study_id=1").json()
+    assert d["current_version"]["version"] == "2.0"
+    assert d["summary"]["reconsent_required"] >= 2  # seeded v1.0 signers
+    assert d["summary"]["missing"] >= 1             # 301-007 has no consent on file
+    missing = next(p for p in d["participants"] if p["consent_status"] == "missing")
+    r = client.post("/api/econsent/consent", json={
+        "participant_id": missing["participant_id"],
+        "consent_version_id": d["current_version"]["id"],
+    })
+    assert r.status_code == 200
+    d2 = client.get("/api/econsent/status?study_id=1").json()
+    assert d2["summary"]["missing"] == d["summary"]["missing"] - 1
+
+
+# ---------- Site Management ----------
+
+def test_sites_overview_and_activation(client):
+    sites_ = client.get("/api/sites?study_id=1").json()["sites"]
+    pending = next(s for s in sites_ if s["status"] == "Pending Activation")
+    r = client.post(f"/api/sites/{pending['id']}/status", json={"status": "Active"})
+    assert r.status_code == 200
+    assert r.json()["status"] == "Active"
+
+
+def test_sites_cannot_close_with_enrolled(client):
+    sites_ = client.get("/api/sites?study_id=1").json()["sites"]
+    busy = next(s for s in sites_ if s["enrolled"] > 0)
+    assert client.post(f"/api/sites/{busy['id']}/status", json={"status": "Closed"}).status_code == 400
+
+
+def test_sites_add(client):
+    r = client.post("/api/sites", json={
+        "study_id": 2, "name": "Phoenix Cardio Research", "country": "USA", "pi_name": "Dr. Lee",
+    })
+    assert r.status_code == 200
+    assert r.json()["status"] == "Pending Activation"
+
+
+# ---------- 24/7 Reporting ----------
+
+def test_study_report_sections(client):
+    r = client.get("/api/reports/study/1")
+    assert r.status_code == 200
+    body = r.json()
+    for section in ("enrollment", "data_quality", "safety", "epro", "supply", "consent"):
+        assert section in body
+    assert body["enrollment"]["target"] == 420
+    assert body["safety"]["saes"] >= 2
+    assert len(body["enrollment"]["by_site"]) >= 3
+
+
+def test_report_csv_export(client):
+    r = client.get("/api/reports/study/1/export?dataset=adverse_events")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/csv")
+    lines = r.text.strip().splitlines()
+    assert lines[0].startswith("id,participant_id,verbatim_term")
+    assert len(lines) > 1
+
+
+def test_report_csv_unknown_dataset(client):
+    assert client.get("/api/reports/study/1/export?dataset=nope").status_code == 400
+
+
 # ---------- AI fallbacks ----------
 
 def test_protocol_offline_generation(client):
@@ -253,4 +408,4 @@ def test_trials_search_requires_query(client):
 def test_index_served(client):
     r = client.get("/")
     assert r.status_code == 200
-    assert "FusionTrials" in r.text
+    assert "Fusion AI eClinical Suite" in r.text

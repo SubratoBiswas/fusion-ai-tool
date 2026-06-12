@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FusionTrials — AI Clinical Research Platform</title>
+<title>Fusion AI eClinical Suite</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,600;0,700;1,500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/styles.css">
@@ -13,24 +13,29 @@
   <div class="brand">
     <span class="brand-mark">F</span>
     <div>
-      <h1>FusionTrials</h1>
-      <p class="tagline">AI-powered clinical research operations</p>
+      <h1>Fusion AI eClinical Suite</h1>
+      <p class="tagline">16 integrated modules · AI-powered clinical research operations · 24/7 reporting</p>
     </div>
   </div>
   <div id="ai-badge" class="ai-badge">checking…</div>
 </header>
 
 <nav id="tabs">
-  <button class="tab active" data-tab="dashboard">Dashboard</button>
+  <button class="tab active" data-tab="dashboard">CTMS Dashboard</button>
   <button class="tab" data-tab="edc">EDC</button>
-  <button class="tab" data-tab="rtsm">RTSM</button>
+  <button class="tab" data-tab="quality">Data Mgmt</button>
+  <button class="tab" data-tab="rtsm">IWRS</button>
   <button class="tab" data-tab="epro">ePRO</button>
   <button class="tab" data-tab="etmf">eTMF</button>
-  <button class="tab" data-tab="protocol">Protocol Designer</button>
-  <button class="tab" data-tab="eligibility">Eligibility Screener</button>
-  <button class="tab" data-tab="coding">Medical Coding</button>
-  <button class="tab" data-tab="quality">Data Quality</button>
-  <button class="tab" data-tab="registry">Registry Intelligence</button>
+  <button class="tab" data-tab="aesae">AE/SAE</button>
+  <button class="tab" data-tab="safetydb">Safety DB</button>
+  <button class="tab" data-tab="econsent">eConsent</button>
+  <button class="tab" data-tab="sites">Sites</button>
+  <button class="tab" data-tab="reports">Reports</button>
+  <button class="tab" data-tab="protocol">AI Protocol</button>
+  <button class="tab" data-tab="eligibility">AI Eligibility</button>
+  <button class="tab" data-tab="coding">AI Coding</button>
+  <button class="tab" data-tab="registry">Registry AI</button>
 </nav>
 
 <main>
@@ -58,9 +63,9 @@
     <div id="edc-records"></div>
   </section>
 
-  <!-- ============ RTSM ============ -->
+  <!-- ============ IWRS ============ -->
   <section id="panel-rtsm" class="panel">
-    <h2>Randomization &amp; Trial Supply Management</h2>
+    <h2>IWRS — Interactive Web Response System</h2>
     <p class="hint">Randomize subjects via minimization (balanced arm allocation) with automatic kit dispensing from the site's inventory. Low-stock positions are flagged for resupply.</p>
     <div class="card form-grid">
       <label>Study <select id="rtsm-study" class="study-select"></select></label>
@@ -159,17 +164,111 @@
     <div id="coding-result"></div>
   </section>
 
-  <!-- ============ DATA QUALITY ============ -->
+  <!-- ============ DATA MANAGEMENT ============ -->
   <section id="panel-quality" class="panel">
-    <h2>AI Data Quality Review</h2>
-    <p class="hint">Run automated edit checks across a study's EDC data — missing values, eligibility deviations, AE coding gaps, seriousness/severity mismatches — then get an AI-written data review narrative. Findings become open queries.</p>
+    <h2>Data Management (DM)</h2>
+    <p class="hint">Central query workbench for findings raised by EDC edit checks, ePRO alerts, and the AI data review — sites respond, data managers close. Run the AI review to sweep the study for missing values, eligibility deviations, coding gaps, and seriousness mismatches.</p>
     <div class="card form-grid">
       <label>Study
-        <select id="quality-study"></select>
+        <select id="quality-study" class="study-select"></select>
       </label>
-      <button id="quality-run" class="primary">Run review</button>
+      <label>Query status filter
+        <select id="dm-status-filter">
+          <option value="">all</option><option>open</option><option>answered</option><option>closed</option>
+        </select>
+      </label>
+      <button id="quality-run" class="primary full">Run AI data review</button>
     </div>
     <div id="quality-result"></div>
+    <h3>Query workbench</h3>
+    <div id="dm-queries"></div>
+  </section>
+
+  <!-- ============ AE/SAE TRACKING ============ -->
+  <section id="panel-aesae" class="panel">
+    <h2>AE/SAE Tracking</h2>
+    <p class="hint">Report adverse events with automatic medical coding. Serious events automatically open a case in the Safety Database.</p>
+    <form id="ae-form" class="card form-grid">
+      <label>Study <select id="ae-study" class="study-select"></select></label>
+      <label>Participant <select id="ae-participant"></select></label>
+      <label class="full">Verbatim term * <input name="verbatim_term" required placeholder="e.g. severe vomiting overnight"></label>
+      <label>Severity
+        <select name="severity"><option>Mild</option><option>Moderate</option><option>Severe</option></select>
+      </label>
+      <label>Outcome <input name="outcome" placeholder="e.g. Recovered, Ongoing"></label>
+      <label class="full" style="flex-direction:row;align-items:center;gap:8px">
+        <input type="checkbox" name="serious" style="width:auto"> Serious adverse event (opens a safety case)
+      </label>
+      <button type="submit" class="primary full">Report adverse event</button>
+    </form>
+    <div id="ae-result"></div>
+    <h3>Reported events</h3>
+    <div id="ae-list"></div>
+  </section>
+
+  <!-- ============ SAFETY DATABASE ============ -->
+  <section id="panel-safetydb" class="panel">
+    <h2>Safety Database</h2>
+    <p class="hint">Pharmacovigilance case workflow: medical assessment (causality, expectedness, seriousness), automatic expedited-reporting determination with regulatory clocks (7-day fatal/life-threatening SUSAR, 15-day otherwise), AI-drafted narratives, and case closure.</p>
+    <div class="card form-grid">
+      <label>Study <select id="sdb-study" class="study-select"></select></label>
+    </div>
+    <form id="sdb-assess-form" class="card form-grid" style="display:none">
+      <h3 class="full">Medical assessment — <span id="sdb-assess-case" class="mono"></span></h3>
+      <label>Causality
+        <select name="causality"><option>not related</option><option>unlikely related</option><option>possibly related</option><option>probably related</option><option>related</option></select>
+      </label>
+      <label>Expectedness
+        <select name="expectedness"><option>expected</option><option>unexpected</option></select>
+      </label>
+      <label class="full">Seriousness criteria
+        <span id="sdb-criteria" style="display:flex;gap:14px;flex-wrap:wrap;margin-top:4px"></span>
+      </label>
+      <button type="submit" class="primary">Save assessment</button>
+      <button type="button" id="sdb-assess-cancel" class="ghost">Cancel</button>
+    </form>
+    <div id="sdb-result"></div>
+    <div id="sdb-cases"></div>
+  </section>
+
+  <!-- ============ ECONSENT ============ -->
+  <section id="panel-econsent" class="panel">
+    <h2>eConsent</h2>
+    <p class="hint">Track which ICF version each participant signed. Protocol amendments flag participants on superseded versions for re-consent; subjects with no consent on file are critical findings.</p>
+    <div class="card form-grid">
+      <label>Study <select id="ec-study" class="study-select"></select></label>
+    </div>
+    <div id="ec-result"></div>
+    <div id="ec-overview"></div>
+  </section>
+
+  <!-- ============ SITES ============ -->
+  <section id="panel-sites" class="panel">
+    <h2>Site Management</h2>
+    <p class="hint">Site activation workflow and per-site performance: enrollment, open queries, and adverse events.</p>
+    <div class="card form-grid">
+      <label>Study <select id="sites-study" class="study-select"></select></label>
+    </div>
+    <div id="sites-result"></div>
+    <div id="sites-list"></div>
+    <h3>Add a site</h3>
+    <form id="sites-form" class="card form-grid">
+      <label>Site name * <input name="name" required></label>
+      <label>Country * <input name="country" required></label>
+      <label>Principal investigator * <input name="pi_name" required></label>
+      <button type="submit" class="primary">Add site (pending activation)</button>
+    </form>
+  </section>
+
+  <!-- ============ REPORTS ============ -->
+  <section id="panel-reports" class="panel">
+    <h2>24/7 Project &amp; Clinical Data Reporting</h2>
+    <p class="hint">Always-available study reports aggregating every module — enrollment, data quality, safety, ePRO, supply, and consent — with CSV dataset exports for sponsors and statisticians.</p>
+    <div class="card form-grid">
+      <label>Study <select id="rep-study" class="study-select"></select></label>
+      <button id="rep-run" class="primary">Generate report</button>
+    </div>
+    <div id="rep-result"></div>
   </section>
 
   <!-- ============ REGISTRY ============ -->
@@ -185,7 +284,7 @@
 </main>
 
 <footer>
-  FusionTrials demo platform — AI outputs are drafts for qualified human review and are not a substitute for medical, statistical, or regulatory judgment.
+  Fusion AI eClinical Suite demo platform — AI outputs are drafts for qualified human review and are not a substitute for medical, statistical, or regulatory judgment.
 </footer>
 
 <script src="/static/app.js"></script>

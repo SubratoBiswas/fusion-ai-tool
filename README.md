@@ -1,53 +1,76 @@
-# FusionTrials — AI-Powered Clinical Research Platform
+# Fusion AI eClinical Suite
 
-FusionTrials is a unified eClinical platform for clinical research teams (sponsors, CROs, and sites). It combines the five core eClinical modules — **CTMS, EDC, RTSM, ePRO, eTMF** — with Claude-powered AI features, backed by **MongoDB** and deployable to **Render** in one click.
+**Fusion AI eClinical Suite** is a unified, AI-powered clinical research platform for sponsors, CROs, and sites. It integrates **16 modules** — including Electronic Data Capture (EDC), Data Management (DM), Interactive Web Response System (IWRS), Clinical Trial Management System (CTMS), AE/SAE Tracking, Safety Database, eTMF, and 24/7 project and clinical data reporting — backed by **MongoDB** and deployable to **Render** in one click.
 
 ## Why this design
 
 The product was shaped by research into the clinical research software landscape:
 
-- **[FuelClinical](https://fuelclinical.com/)** is a clinical trial management partner helping biotech and medical device companies navigate regulatory pathways, manage trial data, and run multisite registries. FusionTrials productizes that workflow.
-- **Best-in-class platforms** — Veeva Vault Clinical Suite, Clinion, Curebase, Viedoc, RealTime CTMS — converge on a unified suite (EDC + RTSM + CTMS + eTMF + ePRO) with AI layered on top: AI protocol generation, AI medical coding, intelligent data review, and eligibility/compliance monitoring. FusionTrials implements all of it in one codebase.
+- **[FuelClinical](https://fuelclinical.com/)** is a clinical trial management partner helping biotech and medical device companies navigate regulatory pathways, manage trial data, and run multisite registries. Fusion AI eClinical Suite productizes that workflow.
+- **Best-in-class platforms** — Veeva Vault Clinical Suite, Clinion, Curebase, Viedoc, RealTime CTMS — converge on a unified suite with AI layered on top: AI protocol generation, AI medical coding, intelligent data review, and eligibility/compliance monitoring. This suite implements all of it in one codebase.
 
-## Modules
+## The 16 modules
 
-### Core eClinical suite
+### Clinical operations
 
-| Module | What it does |
-|---|---|
-| **CTMS Dashboard** | Portfolio KPIs, per-study enrollment vs target, sites, AEs/SAEs, open queries, ePRO alerts. Click a study for participant/AE/query detail. |
-| **EDC** | CRF templates (Demographics, Vital Signs, Laboratory) with real-time edit checks — required fields, numeric ranges, coded values. Failures automatically raise data queries. |
-| **RTSM** | Subject randomization via minimization (balanced arm allocation) with automatic IP kit dispensing from site inventory, low-stock flags, and pending-randomization worklist. |
-| **ePRO** | Patient-reported instruments (symptom diary, quality of life) on a 0–10 scale. Items scored ≥ 8 fire a symptom alert and open a site follow-up query. |
-| **eTMF** | Essential documents tracked against a simplified TMF Reference Model: inspection-readiness %, missing-artifact gap analysis, document filing and approval workflow. |
+| # | Module | What it does |
+|---|---|---|
+| 1 | **CTMS Dashboard** | Portfolio KPIs, per-study enrollment vs target, sites, AEs/SAEs, open queries, ePRO alerts, study drill-down. |
+| 2 | **EDC** | CRF templates (Demographics, Vital Signs, Laboratory) with real-time edit checks; failures automatically raise data queries. |
+| 3 | **Data Management (DM)** | Central query workbench (respond/close workflow) for queries raised by EDC, ePRO, and the AI data review. |
+| 4 | **IWRS** | Subject randomization via minimization with automatic IP kit dispensing, inventory tracking, and low-stock flags. |
+| 5 | **ePRO** | Patient-reported instruments (symptom diary, quality of life); items scored ≥ 8 fire symptom alerts and follow-up queries. |
+| 6 | **eTMF** | Essential documents vs the TMF Reference Model: inspection-readiness %, missing-artifact gap analysis, approval workflow. |
+| 7 | **eConsent** | ICF version tracking; protocol amendments flag re-consent; missing consent is a critical finding. |
+| 8 | **Site Management** | Site activation workflow (pending → active → closed) with per-site enrollment, query, and AE metrics. |
 
-### AI modules (Claude-powered)
+### Safety & pharmacovigilance
 
-| Module | What it does |
-|---|---|
-| **AI Protocol Designer** | Study concept → structured protocol synopsis (objectives, design, criteria, endpoints, statistics, safety monitoring) via Claude structured outputs. |
-| **AI Eligibility Screener** | Unstructured patient profile vs inclusion/exclusion criteria, per-criterion verdicts with rationale and missing-information detection. |
-| **AI Medical Coding** | Verbatim AE terms → MedDRA-style Preferred Term + System Organ Class with confidence flags for coder review. |
-| **AI Data Quality Review** | Deterministic edit checks across a study + AI-written data review narrative; findings persist as open queries. |
-| **Registry Intelligence** | Live ClinicalTrials.gov v2 search with an AI competitive-landscape summary for feasibility planning. |
+| # | Module | What it does |
+|---|---|---|
+| 9 | **AE/SAE Tracking** | Report adverse events with automatic medical coding; serious events automatically open safety cases. |
+| 10 | **Safety Database** | PV case workflow: causality/expectedness/seriousness assessment, SUSAR determination with regulatory clocks (7-day fatal/life-threatening, 15-day otherwise), AI-drafted ICSR narratives, case closure. |
+
+### Reporting
+
+| # | Module | What it does |
+|---|---|---|
+| 11 | **24/7 Reporting** | Always-available study reports aggregating every module — enrollment, data quality, safety, ePRO, supply, consent — plus CSV dataset exports (participants, AEs, queries, CRFs, ePRO, safety cases). |
+
+### AI studio (Claude-powered)
+
+| # | Module | What it does |
+|---|---|---|
+| 12 | **AI Protocol Designer** | Study concept → structured protocol synopsis (objectives, design, criteria, endpoints, statistics, safety monitoring). |
+| 13 | **AI Eligibility Screener** | Patient profile vs inclusion/exclusion criteria with per-criterion verdicts and missing-information detection. |
+| 14 | **AI Medical Coding** | Verbatim AE terms → MedDRA-style Preferred Term + System Organ Class with confidence flags. |
+| 15 | **AI Data Review** | Deterministic edit checks across a study + AI-written data review narrative; findings persist as queries. |
+| 16 | **Registry Intelligence** | Live ClinicalTrials.gov search with an AI competitive-landscape summary for feasibility planning. |
+
+The modules are integrated, not siloed: an EDC edit-check failure opens a DM query; a serious AE opens a Safety Database case with a reporting clock; an ePRO alert opens a site follow-up query; everything rolls up into the CTMS dashboard and the 24/7 report.
 
 ## Architecture
 
 - **Backend:** Python / FastAPI.
 - **Database:** **MongoDB** via `pymongo` (`MONGODB_URI`, e.g. MongoDB Atlas). Without `MONGODB_URI`, an in-memory `mongomock` instance is used — zero-infrastructure local dev and tests.
 - **AI:** Anthropic Python SDK, model `claude-opus-4-8`, adaptive thinking, JSON-schema structured outputs.
-- **Frontend:** single-page vanilla JS dashboard served from `/`.
-- **Graceful degradation:** every AI endpoint has a deterministic rule-based fallback (templates, age-criterion heuristics, an offline PT/SOC dictionary, rule summaries), so the platform is fully demoable without an API key. Responses declare their provenance (`_generated_by: claude | offline-*`).
+- **Frontend:** single-page vanilla JS app served from `/`.
+- **Graceful degradation:** every AI endpoint has a deterministic rule-based fallback (templates, heuristics, offline PT/SOC dictionary), so the platform is fully demoable without an API key. Responses declare their provenance (`_generated_by: claude | offline-*`).
 
 ```
 app/
-├── main.py            # FastAPI routes (CTMS + EDC/RTSM/ePRO/eTMF + AI)
+├── main.py            # FastAPI routes for all 16 modules
 ├── database.py        # MongoDB layer + seed data (mongomock fallback)
 ├── modules/
 │   ├── edc.py         # CRF templates, edit checks, auto data queries
-│   ├── rtsm.py        # minimization randomization + kit dispensing
+│   ├── dm.py          # query workbench (respond/close)
+│   ├── rtsm.py        # IWRS: minimization randomization + kit dispensing
 │   ├── epro.py        # PRO instruments, submissions, symptom alerts
-│   └── etmf.py        # TMF reference model, completeness, approvals
+│   ├── etmf.py        # TMF reference model, completeness, approvals
+│   ├── safety.py      # AE/SAE tracking + safety database (PV cases)
+│   ├── econsent.py    # ICF version tracking, re-consent flags
+│   ├── sites.py       # site activation + performance metrics
+│   └── reporting.py   # 24/7 study reports + CSV exports
 ├── ai/
 │   ├── client.py      # Anthropic client wrapper (shared)
 │   ├── protocol.py    # protocol synopsis generation
@@ -57,7 +80,7 @@ app/
 │   └── registry.py    # ClinicalTrials.gov search + AI summary
 └── static/            # SPA frontend
 render.yaml            # Render Blueprint (web service)
-tests/test_api.py      # offline-mode API tests (23 tests)
+tests/test_api.py      # offline-mode API tests (38 tests)
 ```
 
 ## Quick start (local)
@@ -96,4 +119,4 @@ Tests run without network, MongoDB, or API keys (mongomock + AI fallbacks).
 
 ## Important disclaimer
 
-All AI outputs (protocol drafts, eligibility verdicts, medical codings, data-review narratives) are **decision-support drafts for qualified human review**. They are not a substitute for medical, statistical, or regulatory judgment, and final decisions rest with investigators, medical coders, data managers, and regulatory professionals. This is a demo platform — production use in regulated trials would additionally require audit trails, e-signatures (21 CFR Part 11), access control, and validation.
+All AI outputs (protocol drafts, eligibility verdicts, medical codings, case narratives, data-review narratives) are **decision-support drafts for qualified human review**. They are not a substitute for medical, statistical, or regulatory judgment, and final decisions rest with investigators, medical coders, safety physicians, data managers, and regulatory professionals. This is a demo platform — production use in regulated trials would additionally require audit trails, e-signatures (21 CFR Part 11), access control, and validation.

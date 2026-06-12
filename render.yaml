@@ -1,9 +1,9 @@
-# Render Blueprint — deploy FusionTrials as a web service.
+# Render Blueprint — deploy Fusion AI eClinical Suite as a web service.
 # MongoDB is external (MongoDB Atlas free tier works): set MONGODB_URI
 # in the Render dashboard after the first deploy.
 services:
   - type: web
-    name: fusiontrials
+    name: fusion-ai-eclinical-suite
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt

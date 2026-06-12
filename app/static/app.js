@@ -261,6 +261,7 @@ $("#quality-run").addEventListener("click", async () => {
       </table>` : ""}
       ${genBadge(r.ai_enabled ? "claude" : "offline-rules")}
     </div>`;
+    refreshDm();
     loadDashboard(); // refresh open-query KPI
   } catch (err) { showError(out, err); }
   btn.disabled = false;
@@ -311,6 +312,7 @@ async function initModulesOnce() {
   renderCrfFields();
   renderEproQuestions();
   refreshEdc(); refreshRtsm(); refreshEpro(); refreshEtmf();
+  refreshDm(); refreshAe(); refreshSdb(); refreshEc(); refreshSites();
 
   $("#edc-study").addEventListener("change", refreshEdc);
   $("#edc-form").addEventListener("change", renderCrfFields);
@@ -318,6 +320,12 @@ async function initModulesOnce() {
   $("#epro-study").addEventListener("change", refreshEpro);
   $("#epro-instrument").addEventListener("change", renderEproQuestions);
   $("#etmf-study").addEventListener("change", refreshEtmf);
+  $("#quality-study").addEventListener("change", refreshDm);
+  $("#dm-status-filter").addEventListener("change", refreshDm);
+  $("#ae-study").addEventListener("change", refreshAe);
+  $("#sdb-study").addEventListener("change", refreshSdb);
+  $("#ec-study").addEventListener("change", refreshEc);
+  $("#sites-study").addEventListener("change", refreshSites);
 }
 
 async function fillParticipantSelect(selId, studyId) {
@@ -524,6 +532,290 @@ $("#etmf-form").addEventListener("submit", async (e) => {
     e.target.reset();
     refreshEtmf();
   } catch (err) { showError($("#etmf-result"), err); }
+});
+
+/* ---------- Data Management: query workbench ---------- */
+async function refreshDm() {
+  const studyId = $("#quality-study").value;
+  if (!studyId) return;
+  const status = $("#dm-status-filter").value;
+  const out = $("#dm-queries");
+  try {
+    const qs = (await api(`/api/dm/queries?study_id=${studyId}${status ? `&status=${status}` : ""}`)).queries;
+    out.innerHTML = qs.length ? `<div class="card">
+      <table><tr><th>Subject</th><th>Field</th><th>Issue</th><th>Severity</th><th>Status</th><th>Response</th><th></th></tr>
+      ${qs.map((q) => `<tr>
+        <td class="mono">${esc(q.subject_code)}</td><td class="mono">${esc(q.field)}</td>
+        <td>${esc(q.issue)}</td>
+        <td><span class="pill ${q.severity === "critical" ? "red" : q.severity === "major" ? "amber" : "dim"}">${esc(q.severity)}</span></td>
+        <td><span class="pill ${q.status === "open" ? "red" : q.status === "answered" ? "amber" : "green"}">${esc(q.status)}</span></td>
+        <td>${esc(q.response ?? "—")}</td>
+        <td>${q.status === "open" ? `<button class="ghost dm-respond" data-id="${q.id}">Respond</button>` : ""}
+            ${q.status !== "closed" ? `<button class="ghost dm-close" data-id="${q.id}">Close</button>` : ""}</td>
+      </tr>`).join("")}</table></div>`
+      : `<p class="hint">No queries match this filter.</p>`;
+    document.querySelectorAll(".dm-respond").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        const text = prompt("Site response to this query:");
+        if (!text) return;
+        try {
+          await api(`/api/dm/queries/${btn.dataset.id}/respond`, {
+            method: "POST", body: JSON.stringify({ response: text }),
+          });
+          refreshDm();
+        } catch (err) { showError(out, err); }
+      }));
+    document.querySelectorAll(".dm-close").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        try {
+          await api(`/api/dm/queries/${btn.dataset.id}/close`, { method: "POST" });
+          refreshDm(); loadDashboard();
+        } catch (err) { showError(out, err); }
+      }));
+  } catch (err) { showError(out, err); }
+}
+
+/* ---------- AE/SAE Tracking ---------- */
+async function refreshAe() {
+  const studyId = $("#ae-study").value;
+  if (!studyId) return;
+  await fillParticipantSelect("#ae-participant", studyId);
+  const out = $("#ae-list");
+  try {
+    const aes = (await api(`/api/safety/aes?study_id=${studyId}`)).adverse_events;
+    out.innerHTML = aes.length ? `<div class="card">
+      <table><tr><th>Subject</th><th>Verbatim</th><th>Coded term</th><th>SOC</th><th>Severity</th><th>Serious</th><th>Outcome</th></tr>
+      ${aes.map((a) => `<tr>
+        <td class="mono">${esc(a.subject_code)}</td><td>${esc(a.verbatim_term)}</td>
+        <td>${a.preferred_term ? esc(a.preferred_term) : "<span class='pill amber'>uncoded</span>"}</td>
+        <td>${esc(a.system_organ_class ?? "—")}</td><td>${esc(a.severity)}</td>
+        <td>${a.serious ? "<span class='pill red'>SAE</span>" : "—"}</td>
+        <td>${esc(a.outcome ?? "—")}</td></tr>`).join("")}
+      </table></div>` : `<p class="hint">No adverse events reported for this study yet.</p>`;
+  } catch (err) { showError(out, err); }
+}
+
+$("#ae-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const out = $("#ae-result");
+  const fd = new FormData(e.target);
+  try {
+    const r = await api("/api/safety/ae", {
+      method: "POST",
+      body: JSON.stringify({
+        study_id: Number($("#ae-study").value),
+        participant_id: Number($("#ae-participant").value),
+        verbatim_term: fd.get("verbatim_term"),
+        severity: fd.get("severity"),
+        serious: fd.get("serious") === "on",
+        outcome: fd.get("outcome") || null,
+      }),
+    });
+    out.innerHTML = `<div class="narrative">
+      Event recorded${r.adverse_event.preferred_term ? ` and auto-coded to <strong>${esc(r.adverse_event.preferred_term)}</strong> (confidence: ${esc(r.coding.confidence)})` : " — could not be auto-coded, manual coding required"}.
+      ${r.safety_case ? `Safety case <span class="mono">${esc(r.safety_case.case_number)}</span> opened — assess it in the Safety Database.` : ""}
+    </div>`;
+    e.target.reset();
+    refreshAe(); refreshSdb(); loadDashboard();
+  } catch (err) { showError(out, err); }
+});
+
+/* ---------- Safety Database ---------- */
+const SDB_CRITERIA = ["death", "life-threatening", "hospitalization", "disability", "congenital anomaly", "medically significant"];
+
+async function refreshSdb() {
+  const studyId = $("#sdb-study").value;
+  if (!studyId) return;
+  const out = $("#sdb-cases");
+  try {
+    const cases = (await api(`/api/safety/cases?study_id=${studyId}`)).cases;
+    out.innerHTML = cases.length ? `<div class="card">
+      <table><tr><th>Case</th><th>Subject</th><th>Event</th><th>Status</th><th>Causality</th><th>Expectedness</th><th>Expedited</th><th>Narrative</th><th></th></tr>
+      ${cases.map((c) => `<tr>
+        <td class="mono">${esc(c.case_number)}</td><td class="mono">${esc(c.subject_code)}</td>
+        <td>${esc(c.event)}</td>
+        <td><span class="pill ${c.status === "closed" ? "green" : c.status === "new" ? "red" : "amber"}">${esc(c.status.replace("_", " "))}</span></td>
+        <td>${esc(c.causality ?? "—")}</td><td>${esc(c.expectedness ?? "—")}</td>
+        <td>${c.expedited ? `<span class="pill red">SUSAR${c.days_to_due !== null ? ` · due in ${c.days_to_due}d` : ""}</span>` : "—"}</td>
+        <td>${c.narrative ? `<details><summary style="cursor:pointer;color:var(--teal)">view</summary><div style="max-width:340px">${esc(c.narrative)}</div></details>` : "—"}</td>
+        <td>${c.status !== "closed" ? `
+          <button class="ghost sdb-assess" data-id="${c.id}" data-case="${esc(c.case_number)}">Assess</button>
+          <button class="ghost sdb-narrative" data-id="${c.id}">Narrative</button>
+          <button class="ghost sdb-closebtn" data-id="${c.id}">Close</button>` : ""}</td>
+      </tr>`).join("")}</table></div>`
+      : `<p class="hint">No safety cases for this study.</p>`;
+
+    document.querySelectorAll(".sdb-assess").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        const form = $("#sdb-assess-form");
+        form.style.display = "grid";
+        form.dataset.caseId = btn.dataset.id;
+        $("#sdb-assess-case").textContent = btn.dataset.case;
+        $("#sdb-criteria").innerHTML = SDB_CRITERIA.map((cr) =>
+          `<label style="flex-direction:row;align-items:center;gap:5px"><input type="checkbox" value="${cr}" style="width:auto">${cr}</label>`).join("");
+        form.scrollIntoView({ behavior: "smooth" });
+      }));
+    document.querySelectorAll(".sdb-narrative").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        btn.disabled = true; btn.textContent = "drafting…";
+        try {
+          await api(`/api/safety/cases/${btn.dataset.id}/narrative`, { method: "POST" });
+          refreshSdb();
+        } catch (err) { showError($("#sdb-result"), err); btn.disabled = false; }
+      }));
+    document.querySelectorAll(".sdb-closebtn").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        try {
+          await api(`/api/safety/cases/${btn.dataset.id}/close`, { method: "POST" });
+          $("#sdb-result").innerHTML = `<div class="narrative">Case closed.</div>`;
+          refreshSdb();
+        } catch (err) { showError($("#sdb-result"), err); }
+      }));
+  } catch (err) { showError(out, err); }
+}
+
+$("#sdb-assess-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const fd = new FormData(form);
+  const criteria = [...form.querySelectorAll("#sdb-criteria input:checked")].map((c) => c.value);
+  try {
+    const r = await api(`/api/safety/cases/${form.dataset.caseId}/assess`, {
+      method: "POST",
+      body: JSON.stringify({
+        causality: fd.get("causality"),
+        expectedness: fd.get("expectedness"),
+        seriousness_criteria: criteria,
+      }),
+    });
+    $("#sdb-result").innerHTML = r.expedited
+      ? `<div class="error-box">Assessment saved — this is a <strong>SUSAR</strong>: expedited regulatory report due ${esc(r.report_due)} (${r.days_to_due} day(s) remaining).</div>`
+      : `<div class="narrative">Assessment saved — no expedited reporting required.</div>`;
+    form.style.display = "none";
+    refreshSdb();
+  } catch (err) { showError($("#sdb-result"), err); }
+});
+$("#sdb-assess-cancel").addEventListener("click", () => { $("#sdb-assess-form").style.display = "none"; });
+
+/* ---------- eConsent ---------- */
+async function refreshEc() {
+  const studyId = $("#ec-study").value;
+  if (!studyId) return;
+  const out = $("#ec-overview");
+  try {
+    const d = await api(`/api/econsent/status?study_id=${studyId}`);
+    out.innerHTML = `<div class="card">
+      <p>
+        Current ICF: <strong>${d.current_version ? esc(d.current_version.title) : "none configured"}</strong> ·
+        <span class="pill green">${d.summary.current} current</span>
+        <span class="pill amber">${d.summary.reconsent_required} need re-consent</span>
+        <span class="pill red">${d.summary.missing} missing</span>
+      </p>
+      <table><tr><th>Subject</th><th>Status</th><th>Signed version</th><th>Consented at</th><th></th></tr>
+      ${d.participants.map((p) => `<tr>
+        <td class="mono">${esc(p.subject_code)}</td>
+        <td><span class="pill ${p.consent_status === "current" ? "green" : p.consent_status === "missing" ? "red" : "amber"}">${esc(p.consent_status.replace("_", " "))}</span></td>
+        <td>${p.signed ? esc(p.signed.version) : "—"}</td>
+        <td>${p.signed ? esc(p.signed.consented_at) : "—"}</td>
+        <td>${p.consent_status !== "current" && d.current_version
+          ? `<button class="ghost ec-sign" data-pid="${p.participant_id}" data-vid="${d.current_version.id}">Record consent (v${esc(d.current_version.version)})</button>` : ""}</td>
+      </tr>`).join("")}</table></div>`;
+    document.querySelectorAll(".ec-sign").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        btn.disabled = true;
+        try {
+          await api("/api/econsent/consent", {
+            method: "POST",
+            body: JSON.stringify({
+              participant_id: Number(btn.dataset.pid),
+              consent_version_id: Number(btn.dataset.vid),
+            }),
+          });
+          $("#ec-result").innerHTML = `<div class="narrative">Consent recorded.</div>`;
+          refreshEc();
+        } catch (err) { showError($("#ec-result"), err); }
+      }));
+  } catch (err) { showError(out, err); }
+}
+
+/* ---------- Site Management ---------- */
+async function refreshSites() {
+  const studyId = $("#sites-study").value;
+  if (!studyId) return;
+  const out = $("#sites-list");
+  try {
+    const list = (await api(`/api/sites?study_id=${studyId}`)).sites;
+    out.innerHTML = `<div class="card">
+      <table><tr><th>Site</th><th>Country</th><th>PI</th><th>Status</th><th>Enrolled</th><th>Open queries</th><th>AEs</th><th></th></tr>
+      ${list.map((s) => `<tr>
+        <td>${esc(s.name)}</td><td>${esc(s.country)}</td><td>${esc(s.pi_name)}</td>
+        <td>${statusPill(s.status)}</td>
+        <td>${s.enrolled}</td><td>${s.open_queries}</td><td>${s.ae_count}</td>
+        <td>${s.status === "Pending Activation" ? `<button class="ghost site-status" data-id="${s.id}" data-status="Active">Activate</button>` : ""}
+            ${s.status === "Active" ? `<button class="ghost site-status" data-id="${s.id}" data-status="Closed">Close</button>` : ""}</td>
+      </tr>`).join("")}</table></div>`;
+    document.querySelectorAll(".site-status").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        try {
+          await api(`/api/sites/${btn.dataset.id}/status`, {
+            method: "POST", body: JSON.stringify({ status: btn.dataset.status }),
+          });
+          $("#sites-result").innerHTML = `<div class="narrative">Site status updated to ${esc(btn.dataset.status)}.</div>`;
+          refreshSites(); loadDashboard();
+        } catch (err) { showError($("#sites-result"), err); }
+      }));
+  } catch (err) { showError(out, err); }
+}
+
+$("#sites-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  try {
+    await api("/api/sites", {
+      method: "POST",
+      body: JSON.stringify({
+        study_id: Number($("#sites-study").value),
+        name: fd.get("name"), country: fd.get("country"), pi_name: fd.get("pi_name"),
+      }),
+    });
+    $("#sites-result").innerHTML = `<div class="narrative">Site added in Pending Activation.</div>`;
+    e.target.reset();
+    refreshSites();
+  } catch (err) { showError($("#sites-result"), err); }
+});
+
+/* ---------- 24/7 Reporting ---------- */
+$("#rep-run").addEventListener("click", async () => {
+  const studyId = $("#rep-study").value;
+  const out = $("#rep-result");
+  spinner(out, "Generating report…");
+  try {
+    const r = await api(`/api/reports/study/${studyId}`);
+    const kv = (obj) => Object.entries(obj).map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(String(v))}</td></tr>`).join("");
+    out.innerHTML = `<div class="card">
+      <h3>${esc(r.study.protocol_id)} — generated ${esc(r.generated_at)} UTC</h3>
+      <div class="kpi-row">
+        <div class="kpi"><div class="num">${r.enrollment.enrolled}/${r.enrollment.target}</div><div class="lbl">Enrolled (${r.enrollment.pct_of_target}%)</div></div>
+        <div class="kpi"><div class="num">${r.enrollment.randomized}</div><div class="lbl">Randomized</div></div>
+        <div class="kpi"><div class="num">${r.data_quality.queries_open}</div><div class="lbl">Open queries</div></div>
+        <div class="kpi"><div class="num">${r.safety.saes}</div><div class="lbl">SAEs (${r.safety.expedited_cases} expedited)</div></div>
+        <div class="kpi"><div class="num">${r.epro.alerts}</div><div class="lbl">ePRO alerts</div></div>
+        <div class="kpi"><div class="num">${r.consent.missing}</div><div class="lbl">Consent missing</div></div>
+      </div>
+      <h3>Enrollment by site</h3>
+      <table><tr><th>Site</th><th>Country</th><th>Status</th><th>Enrolled</th><th>Open queries</th><th>AEs</th></tr>
+      ${r.enrollment.by_site.map((s) => `<tr><td>${esc(s.site)}</td><td>${esc(s.country)}</td><td>${statusPill(s.status)}</td><td>${s.enrolled}</td><td>${s.open_queries}</td><td>${s.aes}</td></tr>`).join("")}</table>
+      <h3>Safety — events by System Organ Class</h3>
+      <table>${kv(r.safety.by_soc)}</table>
+      <h3>Data quality</h3>
+      <table>${kv({ "CRF records": r.data_quality.crf_records, "Clean CRFs": r.data_quality.crf_clean, "Total queries": r.data_quality.queries_total, ...Object.fromEntries(Object.entries(r.data_quality.open_by_severity).map(([k, v]) => [`Open (${k})`, v])) })}</table>
+      <h3>Supply &amp; ePRO</h3>
+      <table>${kv({ "Kits available": r.supply.kits_available, "Kits dispensed": r.supply.kits_dispensed, "ePRO submissions": r.epro.submissions, "ePRO avg score": r.epro.avg_score ?? "n/a" })}</table>
+      <h3>CSV exports</h3>
+      <p>${r.available_exports.map((d) =>
+        `<a style="display:inline-block;margin:3px;padding:7px 12px;border:1px solid var(--line);border-radius:8px;color:var(--teal);text-decoration:none" href="/api/reports/study/${studyId}/export?dataset=${d}">${esc(d)}.csv</a>`).join("")}</p>
+    </div>`;
+  } catch (err) { showError(out, err); }
 });
 
 loadDashboard();
