@@ -6,7 +6,6 @@
 
 The product was shaped by research into the clinical research software landscape:
 
-- **[FuelClinical](https://fuelclinical.com/)** is a clinical trial management partner helping biotech and medical device companies navigate regulatory pathways, manage trial data, and run multisite registries. Fusion AI eClinical Suite productizes that workflow.
 - **Best-in-class platforms** — Veeva Vault Clinical Suite, Clinion, Curebase, Viedoc, RealTime CTMS — converge on a unified suite with AI layered on top: AI protocol generation, AI medical coding, intelligent data review, and eligibility/compliance monitoring. This suite implements all of it in one codebase.
 
 ## The 16 modules
